@@ -1,6 +1,6 @@
 # Alzikrayat – Architecture Report
 
-**Name:** Lina Newar
+**Name:** Lina Mohammed Widaa
 **Course:** Advanced Web Technologies
 **Project 1:** Photo Sharing Application (Alzikrayat)
 
