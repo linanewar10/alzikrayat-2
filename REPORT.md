@@ -1,59 +1,55 @@
-# Alzikrayat - Architecture Report
+# Alzikrayat – Architecture Report
 
+**Name:** Lina Newar
 **Course:** Advanced Web Technologies
-**Project:** Photo Sharing Application (Alzikrayat)
-**Language / Stack:** PHP, MySQL (PDO), Bootstrap 5
+**Project 1:** Photo Sharing Application (Alzikrayat)
 
----
+## 1. Introduction
 
-## 1. Overview
+Alzikrayat is a small photo sharing website where a user can make an account,
+upload photos, look at other people's photos in a gallery and write comments on
+them. I built it with PHP and MySQL.
 
-Alzikrayat is a photo sharing web application. Registered users can upload
-photos, view them in a gallery, open any photo to see it in full size and add
-comments. The goal of the project was to build the application with a
-**hand-written MVC framework** and a **3-tier architecture**, without using any
-backend framework (Laravel, Django, ...) or any ORM. Every SQL query is written
-by hand with PDO prepared statements, and the routing is done manually with
-regular expressions.
+The main goal of this project was not really the photos, it was to build the MVC
+structure and the router myself without using a framework like Laravel. So
+everything (the routing, the SQL, the sessions) is written by hand. This report
+explains how I organised the code and the decisions I made.
 
-## 2. 3-Tier Architecture
+## 2. Three-Tier Architecture
 
-The application is split into three physical tiers:
+I divided the project into three layers so that each part has its own job:
 
-- **Presentation tier (Views):** the HTML pages that the user sees. These live
-  in the `views/` folder and use Bootstrap for the layout. All dynamic values
-  are escaped with `htmlspecialchars()` before being printed.
-- **Application / business tier (Controllers + core):** the server logic. This
-  is the router, the controllers and the small base classes in `core/`. This
-  tier receives the request, validates the input, decides what to do and picks
-  the view to render.
-- **Data tier (Models + database):** the models in `models/` and the MySQL
-  database. The models are the only classes that talk to the database.
+- **Presentation tier** – the views (the HTML pages the user sees). These are in
+  the `views/` folder and use Bootstrap for the design.
+- **Application tier** – the server logic: the router and the controllers. This
+  layer takes the request, checks the input and decides what to show.
+- **Data tier** – the models and the MySQL database. Only the models talk to the
+  database.
 
-Keeping these tiers separate means, for example, that a view never runs a SQL
-query directly, and a model never prints HTML.
+The reason for splitting it like this is to keep things clean. For example a view
+never runs a SQL query directly, it only prints the data the controller gives it,
+and a model never prints HTML.
 
 ## 3. MVC Pattern
 
-Inside the application tier the code follows the Model-View-Controller pattern:
+Inside the application the code follows Model–View–Controller:
 
-- **Model** - one class per table (`User`, `Photo`, `Comment`). Each model
-  extends a base `Model` class that opens the PDO connection, so the child
-  models just write their queries. Example methods: `User::create()`,
-  `Photo::getAll()`, `Comment::getByPhotoId()`.
-- **View** - plain PHP templates that only display data passed to them. A shared
-  layout (`views/layout/header.php` and `footer.php`) holds the navbar and
-  footer so every page looks the same.
-- **Controller** - one class per feature (`AuthController`, `PhotoController`,
-  `CommentController`). A controller reads the request, calls the models,
-  and then renders a view or redirects. Controllers extend a base `Controller`
-  class that gives them two helpers: `view()` (render a view inside the layout)
-  and `redirect()`.
+- **Model:** one class for each table (`User`, `Photo`, `Comment`). They all
+  extend a base `Model` class that opens the PDO connection, so each model only
+  has to write its own queries.
+- **View:** simple PHP templates that just display data. I made a shared layout
+  (`header.php` and `footer.php`) that holds the navbar and footer so every page
+  looks the same and I don't repeat the code.
+- **Controller:** one class per feature (`AuthController`, `PhotoController`,
+  `CommentController`). A controller reads the request, calls the model and then
+  renders a view or redirects. They extend a base `Controller` that has two
+  helpers, `view()` and `redirect()`.
 
 ## 4. The Router
 
-The heart of the framework is the custom router in `core/router.php`. Routes are
-registered in `public/index.php` like this:
+This is the part I spent the most time on. Instead of a framework doing the
+routing, I wrote a `Router` class. In `public/index.php` I register the routes
+like this:
 
 ```php
 $router->get('/photo/{id}', function ($id) {
@@ -61,83 +57,79 @@ $router->get('/photo/{id}', function ($id) {
 });
 ```
 
-When a request comes in, `dispatch()` takes the URL path and compares it against
-every registered route. Dynamic parts written as `{id}` are turned into a regex
-group using `preg_replace`:
+When a request comes in, the router loops over the routes and turns the `{id}`
+part into a regular expression so it can match a real URL like `/photo/5`:
 
 ```php
 $pattern = preg_replace('/\{([^}]+)\}/', '([^/]+)', $route);
 $pattern = '#^' . $pattern . '$#';
 ```
 
-If the pattern matches, the captured values (like the photo id) are passed to the
-route's function with `call_user_func_array()`. If no route matches, a 404 is
-returned. The base folder of the app (for example `/alzikrayat/public`) is
-detected automatically and removed before matching, so the same code works both
-on XAMPP and on the PHP built-in server.
+If the pattern matches, the captured value (the id) is passed to the function.
+If nothing matches it returns a 404.
 
-## 5. Database Design
+One problem I had here: my project runs in a folder
+(`http://localhost/alzikrayat/public/...`), so the URL path always started with
+`/alzikrayat/public` and none of my routes matched at the beginning. I fixed it
+by removing that base part from the path before matching, and I detect the base
+folder automatically so it also works with the PHP built-in server.
 
-The database has three normalized tables with auto-increment integer primary
-keys and foreign keys that enforce referential integrity:
+## 5. Database
 
-- **users** - `id`, `first_name`, `last_name`, `email` (unique), `password`
-  (bcrypt hash), and optional `location`, `description`, `occupation`.
-- **photos** - `id`, `user_id` (FK to users), `file_name`, `title`,
-  `description`, `date_time`.
-- **comments** - `id`, `photo_id` (FK to photos), `user_id` (FK to users),
-  `comment`, `date_time`.
+There are three tables: `users`, `photos` and `comments`. Every table has an
+auto-increment integer `id` as the primary key. `photos.user_id` is a foreign key
+to `users`, and `comments` has foreign keys to both `photos` and `users`.
 
-The foreign keys use **`ON DELETE CASCADE`**: if a user is deleted, their photos
-and comments are removed automatically, and if a photo is deleted, its comments
-are removed too. Indexes are added on the foreign key columns to keep the joins
-fast. The password column only ever stores the bcrypt hash produced by
-`password_hash()`, never the raw password.
+I used `ON DELETE CASCADE` on the foreign keys. This means if a user is deleted
+their photos and comments go with them, and if a photo is deleted its comments
+are removed too, so I don't end up with rows that point to nothing. I also put
+indexes on the foreign key columns. The password column only stores the hashed
+password, never the real one.
 
 ## 6. Authentication and Sessions
 
-Registration hashes the password with `password_hash(..., PASSWORD_BCRYPT)`.
-Login looks up the user by email and checks the password with
-`password_verify()`. On success the user's id is stored in `$_SESSION`, which
-keeps them logged in across pages.
+When a user registers, I hash the password with
+`password_hash($password, PASSWORD_BCRYPT)` before saving it, so the real
+password is never in the database. At login I look the user up by email and check
+the password with `password_verify()`. If it's correct I save the user's id in
+`$_SESSION`, which keeps them logged in between pages.
 
-On every successful login the app also writes a **cookie** called `last_login`
-with the current timestamp and a 7-day lifetime. The next time the login page is
-opened, this cookie is read and shown as "Last login from this computer was ...".
-The cookie is separate from the session, so it stays even after logout.
-
-The navbar reads the session on every page: when a user is logged in it shows
-`Hi <first_name>` and a Logout button, otherwise it shows `Please Login` with
-Login and Register buttons.
+I also set a cookie called `last_login` with the current time and a 7-day life.
+The next time the login page opens I read this cookie and show "Last login from
+this computer was ...". The navbar checks the session on every page: if the user
+is logged in it shows "Hi <name>" and a Logout button, otherwise it shows
+"Please Login".
 
 ## 7. Validation and Security
 
-Every form is validated on three levels, as required:
+Every form is validated on three levels:
 
-1. **HTML5** - `required`, `type="email"`, `maxlength`, `minlength` on the
-   inputs.
-2. **JavaScript** - a small script on each form checks the values before submit
-   (letters-only names, password length, non-empty comment, a file is chosen).
-3. **Server-side PHP** - the controllers re-check everything, because the first
-   two layers can be bypassed. Names must be letters only, the email must be a
-   valid RFC email and unique, the password must be at least 6 characters, and
-   uploaded files must be real images under 5 MB.
+1. **HTML5** – `required`, `type="email"`, `maxlength` and so on.
+2. **JavaScript** – a small script checks the values before the form is sent.
+3. **Server-side PHP** – the controller checks everything again, because the
+   first two can be turned off by the user.
 
-Two more security points:
+For security I used PDO prepared statements with placeholders everywhere, so the
+user input is never put directly into the SQL (this stops SQL injection). Before
+printing any data in a view I escape it with `htmlspecialchars()` to stop XSS.
+For deleting a photo I check the owner twice: the controller compares the photo's
+`user_id` with the logged-in user, and the delete query also has
+`AND user_id = ?`, so a user can only delete their own photos.
 
-- **SQL injection** is prevented by using PDO **prepared statements** with named
-  placeholders everywhere - user input is never concatenated into SQL.
-- **XSS** is prevented by escaping every dynamic value with `htmlspecialchars()`
-  before it is printed in a view.
+## 8. Problems I Faced
 
-For the delete feature, ownership is checked twice: the controller compares the
-photo's `user_id` with the logged-in user, and the `DELETE` query also has an
-`AND user_id = ?` condition, so a user can never delete someone else's photo.
+The most annoying bug was that some of my PHP files had an empty line before the
+`<?php` tag. That empty line was being sent to the browser, and after that PHP
+would not let me set the cookie or redirect ("headers already sent"). It took me
+a while to find because the code looked fine. After I removed the blank lines the
+last-login cookie and the redirects worked.
 
-## 8. Conclusion
+The router base path (section 4) was the other thing that confused me at first.
 
-The project meets the requirements of building a photo sharing application on a
-custom MVC framework and a 3-tier architecture, with a hand-written regex
-router, raw parameterized SQL, secure authentication, three validation layers
-and a responsive Bootstrap interface. The code is organized so that each part
-has one clear responsibility, which makes it easier to read and extend.
+## 9. Conclusion
+
+In the end the project does what was asked: a photo sharing app with my own MVC
+framework and a hand-written router, raw SQL with prepared statements, sessions
+and cookies for login, three layers of validation and a responsive Bootstrap
+design. The most useful thing for me was seeing how routing, sessions and cookies
+actually work instead of a framework hiding them.
